@@ -1,0 +1,73 @@
+name: Build & Deploy to Pantheon Dev
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+  push:
+    branches:
+      - dev
+
+jobs:
+  build:
+    name: Composer Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      # Optional step: run code lint/tests here
+      # - run: composer run lint
+
+  deploy:
+    if: github.ref == 'refs/heads/dev'
+    name: Deploy to Pantheon Dev
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Install Terminus
+        run: |
+          curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
+          chmod +x terminus
+          sudo mv terminus /usr/local/bin/terminus
+
+      - name: Authenticate with Pantheon
+        env:
+          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+        run: |
+          terminus auth:login --machine-token="$PANTHEON_MACHINE_TOKEN"
+          terminus auth:whoami
+
+      - name: Deploy branch to Pantheon Dev
+        run: |
+          GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url)
+          git remote add pantheon "$GIT_URL" || true
+          git push pantheon dev --force
+
+      - name: Import config and clear cache
+        run: |
+          terminus drush drupal-site-playground.dev -- cim -y
+          terminus drush drupal-site-playground.dev -- updb -y
+          terminus drush drupal-site-playground.dev -- cr
