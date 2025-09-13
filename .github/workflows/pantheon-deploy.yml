@@ -46,13 +46,13 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "$PANTHEON_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          echo "$PANTHEON_SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
           printf "Host *\n  IdentitiesOnly yes\n" >> ~/.ssh/config
 
       - name: 'Debug: print CI key fingerprint'
         run: |
-          ssh-keygen -y -f ~/.ssh/id_ed25519 | ssh-keygen -lf - | sed 's/^/CI key fingerprint: /'
+          ssh-keygen -y -f ~/.ssh/id_rsa | ssh-keygen -lf - | sed 's/^/CI key fingerprint: /'
 
       - name: Add Pantheon codeserver host key to known_hosts (auto-fallback)
         run: |
@@ -77,11 +77,9 @@ jobs:
 
       - name: Deploy branch to Pantheon Dev
         env:
-          # Force SSH to use the CI key
-          GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519'
+          GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/id_rsa'
         run: |
           GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url)
           git remote add pantheon "$GIT_URL" || git remote set-url pantheon "$GIT_URL"
-          # show which commit we're pushing (debug)
           git show -s --oneline
           git push pantheon HEAD:main --force
