@@ -11,6 +11,7 @@ on:
 
 jobs:
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
 
     steps:
@@ -74,4 +75,4 @@ jobs:
         run: |
           GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url)
           git remote add pantheon "$GIT_URL" || true
-          git push pantheon dev:main --force
+          git push pantheon HEAD:main --force
