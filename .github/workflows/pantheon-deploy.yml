@@ -2,7 +2,7 @@ name: Build & Deploy to Pantheon Dev
 
 on:
   push:
-    branches: [dev] # only deploy on pushes to dev
+    branches: [dev]
 
 jobs:
   deploy:
@@ -11,6 +11,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history (Pantheon rejects shallow pushes)
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -76,6 +78,11 @@ jobs:
           echo "GIT_URL=$GIT_URL"
           git ls-remote "$GIT_URL"
 
+      - name: Ensure full history (unshallow)
+        run: |
+          git fetch --prune --unshallow --tags || true
+          git rev-parse --is-shallow-repository && echo "(still shallow?)" || echo "repo is full clone"
+
       - name: Deploy branch to Pantheon Dev
         env:
           GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/id_rsa'
@@ -85,7 +92,6 @@ jobs:
           git show -s --oneline    # which commit we're deploying
           git push pantheon HEAD:main --force
 
-      # Optional: run Drupal updates after deploy
       - name: Import config and run updates
         run: |
           terminus drush drupal-site-playground.dev -- cim -y
