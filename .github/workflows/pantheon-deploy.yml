@@ -1,41 +1,20 @@
 name: Build & Deploy to Pantheon Dev
 
 on:
+  push:
+    branches:
+      - dev
   pull_request:
     branches:
       - dev
       - main
-  push:
-    branches:
-      - dev
 
 jobs:
-  build:
-    name: Composer Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          tools: composer
-
-      - name: Install dependencies
-        run: composer install --no-interaction --no-progress --prefer-dist --optimize-autoloader
-
-      # Optional step: run code lint/tests here
-      # - run: composer run lint
-
   deploy:
-    if: github.ref == 'refs/heads/dev'
-    name: Deploy to Pantheon Dev
     runs-on: ubuntu-latest
-    needs: build
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup PHP
@@ -60,14 +39,39 @@ jobs:
           terminus auth:login --machine-token="$PANTHEON_MACHINE_TOKEN"
           terminus auth:whoami
 
+      - name: Prepare CI SSH key for Pantheon Git
+        env:
+          PANTHEON_SSH_PRIVATE_KEY: ${{ secrets.PANTHEON_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$PANTHEON_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf "Host *\n  IdentitiesOnly yes\n" >> ~/.ssh/config
+
+      - name: Add Pantheon codeserver host key to known_hosts (auto-fallback)
+        run: |
+          set -e
+          # Try to get the Git URL from Terminus
+          GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url || true)
+          echo "Pantheon Git URL is: ${GIT_URL:-<empty>}"
+
+          if [ -n "$GIT_URL" ]; then
+            HOST=$(echo "$GIT_URL" | sed -E 's|ssh://([^@]+)@([^:/]+):([0-9]+)/.*|\2|')
+            PORT=$(echo "$GIT_URL" | sed -E 's|ssh://([^@]+)@([^:/]+):([0-9]+)/.*|\3|')
+          else
+            # Fallback to your site’s codeserver and standard port
+            HOST="codeserver.dev.f6f897b9-9fd4-4435-ab9d-588b87d6586f.drush.in"
+            PORT="2222"
+          fi
+
+          echo "Adding $HOST:$PORT to known_hosts"
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 644 ~/.ssh/known_hosts
+
       - name: Deploy branch to Pantheon Dev
         run: |
           GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url)
           git remote add pantheon "$GIT_URL" || true
-          git push pantheon dev --force
-
-      - name: Import config and clear cache
-        run: |
-          terminus drush drupal-site-playground.dev -- cim -y
-          terminus drush drupal-site-playground.dev -- updb -y
-          terminus drush drupal-site-playground.dev -- cr
+          git push pantheon dev:main --force
