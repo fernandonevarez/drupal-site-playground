@@ -2,16 +2,10 @@ name: Build & Deploy to Pantheon Dev
 
 on:
   push:
-    branches:
-      - dev
-  pull_request:
-    branches:
-      - dev
-      - main
+    branches: [dev] # only deploy on pushes to dev
 
 jobs:
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
 
     steps:
@@ -57,23 +51,30 @@ jobs:
       - name: Add Pantheon codeserver host key to known_hosts (auto-fallback)
         run: |
           set -e
-          # Try to get the Git URL from Terminus
           GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url || true)
           echo "Pantheon Git URL is: ${GIT_URL:-<empty>}"
-
           if [ -n "$GIT_URL" ]; then
             HOST=$(echo "$GIT_URL" | sed -E 's|ssh://([^@]+)@([^:/]+):([0-9]+)/.*|\2|')
             PORT=$(echo "$GIT_URL" | sed -E 's|ssh://([^@]+)@([^:/]+):([0-9]+)/.*|\3|')
           else
-            # Fallback to your site’s codeserver and standard port
             HOST="codeserver.dev.f6f897b9-9fd4-4435-ab9d-588b87d6586f.drush.in"
             PORT="2222"
           fi
-
           echo "Adding $HOST:$PORT to known_hosts"
           mkdir -p ~/.ssh
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
           chmod 644 ~/.ssh/known_hosts
+
+      - name: Ensure Pantheon Dev is in Git mode
+        run: terminus connection:set drupal-site-playground.dev git
+
+      - name: 'Sanity: ls-remote with CI key'
+        env:
+          GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/id_rsa'
+        run: |
+          GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url)
+          echo "GIT_URL=$GIT_URL"
+          git ls-remote "$GIT_URL"
 
       - name: Deploy branch to Pantheon Dev
         env:
@@ -81,5 +82,12 @@ jobs:
         run: |
           GIT_URL=$(terminus connection:info drupal-site-playground.dev --field=git_url)
           git remote add pantheon "$GIT_URL" || git remote set-url pantheon "$GIT_URL"
-          git show -s --oneline
+          git show -s --oneline    # which commit we're deploying
           git push pantheon HEAD:main --force
+
+      # Optional: run Drupal updates after deploy
+      - name: Import config and run updates
+        run: |
+          terminus drush drupal-site-playground.dev -- cim -y
+          terminus drush drupal-site-playground.dev -- updb -y
+          terminus drush drupal-site-playground.dev -- cr
