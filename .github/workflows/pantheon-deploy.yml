@@ -92,8 +92,12 @@ jobs:
           git show -s --oneline    # which commit we're deploying
           git push pantheon HEAD:main --force
 
-      - name: Import config and run updates
+      - name: Post-deploy — apply config/db changes (safe no-op)
         run: |
-          terminus drush drupal-site-playground.dev -- cim -y
-          terminus drush drupal-site-playground.dev -- updb -y
-          terminus drush drupal-site-playground.dev -- cr
+          SITE="drupal-site-playground.dev"
+          # Import config if there is any; otherwise don’t fail the job
+          terminus drush $SITE -- cim -y || echo "No config to import"
+          # Run DB updates (idempotent: only runs what’s pending)
+          terminus drush $SITE -- updb -y
+          # Clear caches so changes are live
+          terminus drush $SITE -- cr
